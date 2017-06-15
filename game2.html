@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Game 2</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+    <span>1</span>
+    <nav>
+        <button id="start">Find Game</button>
+        <div id="pre-loader" style="display: none;">
+            <div class="loader"></div>
+        </div>
+    </nav>
+    <span></span>
+</header>
+
+<div id="wrapper"></div>
+
+<script>
+  class Field
+  {
+    constructor(progress)
+    {
+      let table = document.createElement('table');
+      progress.forEach(function (row, rowId) {
+        let tr = document.createElement('tr');
+        row.forEach(function (item, id) {
+          let td = document.createElement('td');
+          td.setAttribute('id', rowId + '' + id);
+          if (!item) {
+            td.classList.add('empty');
+          } else {
+            td.classList.add('type-' + item);
+            td.innerText = types[item];
+          }
+          tr.append(td);
+        });
+        table.append(tr);
+      });
+      this._table    = table;
+      this._progress = progress;
+    }
+
+    get table()
+    {
+      return this._table;
+    }
+
+    updateTable(progress)
+    {
+      console.log('pos:');
+      console.log(pos);
+      progress.forEach(function (row, rowId) {
+        row.forEach(function (type, id) {
+          if (type !== 0) {
+            this._progress[rowId][id] = type;
+            let td = document.getElementById(rowId + '' + id);
+            td.classList.add('type-' + type);
+            td.innerText = types[+type];
+          }
+        }, this);
+      }, this);
+    }
+
+    init()
+    {
+      document.getElementById('wrapper').onclick = function(event) { // set onclick function
+        let target = event.target;
+        if (target.tagName === 'TD' && target.className === 'empty' && player.canAct) {
+          pos = target.getAttribute('id');
+          window.step();
+        }
+      }
+    }
+  }
+
+  let player = {
+    name:   '',
+    type:   null,
+    canAct: null,
+
+  };
+  let field = null;
+  let types = [null, 0, 'x'];
+  let pos = null;
+  let names = [
+    'Лобстер',
+    'Нагібатор2000',
+    'міша1999',
+    'Черепаха',
+    'Крон',
+    'Юзек',
+  ];
+
+  if (getCookie('name') && getCookie('name') !== null) {
+    player.name = getCookie('name');
+  } else {
+    player.name = prompt('What is your name?', names[Math.floor(Math.random() * names.length)]);
+    if (!player.name) {
+      player.name = 'Гравець';
+    }
+    setCookie('name', player.name);
+  }
+  let pNameField = document.querySelector('header span:first-child');
+  let oNameField = document.querySelector('header span:last-child');
+  pNameField.innerText = player.name;
+  start.onclick = function() {
+    findGame();
+  };
+
+  function findGame()
+  {
+    let xhr = new XMLHttpRequest();
+    xhr.open("GET", "/queue", true);
+    document.getElementById('pre-loader').setAttribute('style', '');
+    xhr.onreadystatechange = function() {
+      if (this.readyState !== 4) return;
+      if (this.status !== 200) {
+        setTimeout(findGame, 500);
+        return;
+      }
+      document.getElementById('start').remove();
+      document.getElementById('pre-loader').remove();
+      console.log(this.responseText);
+      try {
+        let res = JSON.parse(this.responseText);
+        player.type = res.type;
+        field = new Field(res.progress);
+        let oName = res.oName;
+        oNameField.innerText = oName;
+        document.getElementById('wrapper').append(field.table);
+        field.init();
+        if (res.canAct) {
+          allowAct();
+          makeStep();
+        } else {
+          wait();
+        }
+      } catch (e) {
+        console.log(e);
+      }
+    };
+    xhr.send(null);
+  }
+
+  function allowAct()
+  {
+    player.canAct = true;
+    pNameField.classList.add('type-' + player.type)
+  }
+
+  function deniAct()
+  {
+    player.canAct = false;
+    pNameField.classList.remove('type-' + player.type)
+  }
+
+  function showWin(type) {
+    deleteCookie('gameId');
+  }
+
+  function makeStep()
+  {
+    let xhr = new XMLHttpRequest();
+    xhr.open("POST", "/step", true);
+    xhr.onreadystatechange = function() {
+      if (this.readyState !== 4) return;
+      if (this.status !== 200) {
+        setTimeout(wait, 500);
+        return;
+      }
+      let res = JSON.parse(this.responseText);
+      field.updateTable(res.progress);
+      player.canAct = res.canAct;
+      if (res.win) {
+        showWin(res.win);
+      } else {
+        allowAct();
+        wait();
+      }
+    };
+    window.step = function () {
+      console.log(1);
+      if (pos !== null) {
+        xhr.send(JSON.stringify({pos: pos}));
+      }
+      player.canAct = null;
+      pos = null;
+      window.step = null;
+    }.bind(this);
+  }
+
+  function wait()
+  {
+    let xhr = new XMLHttpRequest();
+    xhr.open("GET", "/wait", true);
+    xhr.onreadystatechange = function() {
+      if (this.readyState !== 4) return;
+      if (this.status !== 200) {
+        setTimeout(wait, 500);
+        return;
+      }
+      try {
+        let res = JSON.parse(this.responseText);
+        player.canAct = res.canAct;
+        field.updateTable(res.progress);
+        if (res.win) {
+          showWin(res.win);
+        } else {
+          if (res.canAct) {
+            makeStep();
+          } else {
+            allowAct();
+            wait();
+          }
+        }
+      } catch (e) {
+        console.log(e);
+      }
+    };
+    xhr.send(null);
+  }
+
+  function getCookie(name) {
+    let matches = document.cookie.match(new RegExp(
+      "(?:^|; )" + name.replace(/([.$?*|{}()\[\]\\\/+^])/g, '\\$1') + "=([^;]*)"
+    ));
+    return matches ? decodeURIComponent(matches[1]) : undefined;
+  }
+
+  function setCookie(name, value, options) {
+    options = options || {};
+
+    let expires = options.expires;
+
+    if (typeof expires === "number" && expires) {
+      let d = new Date();
+      d.setTime(d.getTime() + expires * 1000);
+      expires = options.expires = d;
+    }
+    if (expires && expires.toUTCString) {
+      options.expires = expires.toUTCString();
+    }
+
+    value = encodeURIComponent(value);
+
+    let updatedCookie = name + "=" + value;
+
+    for (let propName in options) {
+      updatedCookie += "; " + propName;
+      if (options.hasOwnProperty(propName)) {
+        let propValue = options[propName];
+        if (propValue !== true) {
+          updatedCookie += "=" + propValue;
+        }
+      }
+    }
+
+    document.cookie = updatedCookie;
+  }
+
+  function deleteCookie(name) {
+    document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+  }
+
+</script>
+</body>
+</html>
